@@ -1,7 +1,21 @@
 // src/components/MonitoramentoFrota.jsx
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 
 const CATEGORIAS = ["Ônibus", "Caminhão", "Moto", "Carro", "Caminhonete", "Van", "SUV", "Esportivo", "Trator", "Ambulância"];
+
+// Ícone e nível médio de combustível/bateria por grupo (mesmo seed visual do Lab 6)
+const PERFIL_CATEGORIA = {
+  "Ônibus": { icone: "🚌", energiaBase: 68 },
+  "Caminhão": { icone: "🚚", energiaBase: 54 },
+  "Moto": { icone: "🏍", energiaBase: 81 },
+  "Carro": { icone: "🚗", energiaBase: 73 },
+  "Caminhonete": { icone: "🛻", energiaBase: 62 },
+  "Van": { icone: "🚐", energiaBase: 70 },
+  "SUV": { icone: "🚙", energiaBase: 77 },
+  "Esportivo": { icone: "🏎", energiaBase: 49 },
+  "Trator": { icone: "🚜", energiaBase: 41 },
+  "Ambulância": { icone: "🚑", energiaBase: 88 },
+};
 
 function linkDaCategoria(categoria) {
   if (categoria === "Carro" || categoria === "Caminhonete") return 1;
@@ -65,6 +79,24 @@ export function MonitoramentoFrota({ infraestrutura, frota, statusLinks, toggleL
   const alertasFrota = veiculosSemLink + anomalias;
   const veiculosOnline = veiculosRastreados - alertasFrota;
   const percentFrota = (veiculosOnline / veiculosRastreados) * 100;
+
+  // Velocidade média real por categoria, calculada em cima do dataset vindo do SQLite
+  const mediasPorCategoria = useMemo(() => {
+    const acumulador = {};
+    CATEGORIAS.forEach(cat => { acumulador[cat] = { soma: 0, qtd: 0 }; });
+    (frota || []).forEach(v => {
+      if (acumulador[v.tipo]) {
+        acumulador[v.tipo].soma += Number(v.vel) || 0;
+        acumulador[v.tipo].qtd += 1;
+      }
+    });
+    const resultado = {};
+    CATEGORIAS.forEach(cat => {
+      const { soma, qtd } = acumulador[cat];
+      resultado[cat] = { velMedia: qtd ? Math.round(soma / qtd) : 0, total: qtd };
+    });
+    return resultado;
+  }, [frota]);
 
   // Relógio ao vivo
   useEffect(() => {
@@ -326,9 +358,9 @@ export function MonitoramentoFrota({ infraestrutura, frota, statusLinks, toggleL
         })}
       </div>
 
-      {/* Gráficos */}
+      {/* Gráficos + Status por Categoria */}
       <div className="row mb-4">
-        <div className="col-12 col-lg-6 mb-3">
+        <div className="col-12 col-lg-4 mb-3">
           <div className="card glass-card h-100"><div className="card-body">
             <div className="d-flex justify-content-between align-items-center mb-2">
               <div className="small text-secondary" style={{ letterSpacing: '1px' }}>TENDÊNCIA DE DISPONIBILIDADE (%)</div>
@@ -378,7 +410,7 @@ export function MonitoramentoFrota({ infraestrutura, frota, statusLinks, toggleL
             </svg>
           </div></div>
         </div>
-        <div className="col-12 col-lg-6 mb-3">
+        <div className="col-12 col-lg-4 mb-3">
           <div className="card glass-card h-100"><div className="card-body">
             <div className="small text-secondary mb-2">DISTRIBUIÇÃO POR CATEGORIA (10.000 cada — seed Lab 6)</div>
             <div className="d-flex align-items-end gap-2" style={{ height: '80px' }}>
@@ -397,6 +429,83 @@ export function MonitoramentoFrota({ infraestrutura, frota, statusLinks, toggleL
               {CATEGORIAS.map(cat => (
                 <div key={cat} style={{ flex: 1, fontSize: '0.55rem' }} className="text-secondary text-center">{cat.slice(0, 3)}</div>
               ))}
+            </div>
+          </div></div>
+        </div>
+
+        {/* Status por Categoria — lista de 10 grupos com regra de dependência */}
+        <div className="col-12 col-lg-4 mb-3">
+          <div className="card glass-card h-100"><div className="card-body">
+            <div className="text-center text-secondary mb-3" style={{ fontSize: '0.65rem', letterSpacing: '2px' }}>
+              10 CATEGORIAS • REGRA DE DEPENDÊNCIA ATIVA
+            </div>
+            <div className="d-flex justify-content-between align-items-baseline mb-3">
+              <h6 className="m-0 fw-bold text-white" style={{ letterSpacing: '1px' }}>STATUS POR CATEGORIA</h6>
+              <span className="text-secondary" style={{ fontSize: '0.65rem' }}>10 Grupos Monitorados</span>
+            </div>
+
+            <div style={{ maxHeight: '340px', overflowY: 'auto', paddingRight: '6px' }}>
+              {CATEGORIAS.map((cat, idx) => {
+                const perfil = PERFIL_CATEGORIA[cat];
+                const idLink = linkDaCategoria(cat);
+                const sinalOk = statusLinks[idLink];
+                const velMedia = Math.max(0, (mediasPorCategoria[cat]?.velMedia || 0) + Math.round(jitter / 2));
+                const energia = Math.min(99, Math.max(5, perfil.energiaBase + jitter));
+                const energiaBaixa = energia < 30;
+
+                return (
+                  <div
+                    key={cat}
+                    className="py-3"
+                    style={{
+                      borderBottom: idx < CATEGORIAS.length - 1 ? '1px solid rgba(255,255,255,0.07)' : 'none',
+                      opacity: sinalOk ? 1 : 0.6,
+                    }}
+                  >
+                    {/* Linha 1: identificação + status do sinal */}
+                    <div className="d-flex justify-content-between align-items-center mb-2">
+                      <div className="d-flex align-items-center gap-2">
+                        <span style={{ fontSize: '1.3rem', filter: sinalOk ? 'none' : 'grayscale(100%)' }}>{perfil.icone}</span>
+                        <span className="fw-bold text-white">{cat}</span>
+                      </div>
+                      <span
+                        className={`badge bg-transparent border ${sinalOk ? 'border-success text-success' : 'border-danger text-danger'}`}
+                        style={{ fontSize: '0.6rem', letterSpacing: '1px' }}
+                      >
+                        {sinalOk ? 'SINAL OK' : 'SEM SINAL'}
+                      </span>
+                    </div>
+
+                    {/* Linha 2: métricas de telemetria */}
+                    <div className="d-flex justify-content-between align-items-end">
+                      <div>
+                        <div className="text-secondary" style={{ fontSize: '0.6rem', letterSpacing: '1px' }}>VEL. MÉDIA</div>
+                        <div className={`font-monospace fw-bold ${sinalOk ? 'text-info' : 'text-secondary'}`} style={{ fontSize: '1.3rem', lineHeight: 1.2 }}>
+                          {sinalOk ? velMedia : '--'}
+                          <span className="text-secondary fw-normal ms-1" style={{ fontSize: '0.7rem' }}>km/h</span>
+                        </div>
+                      </div>
+                      <div className="text-end">
+                        <div className="text-secondary" style={{ fontSize: '0.6rem', letterSpacing: '1px' }}>COMB./BAT. MÉDIO</div>
+                        <div
+                          className={`font-monospace fw-bold ${!sinalOk ? 'text-secondary' : energiaBaixa ? 'text-warning' : 'text-success'}`}
+                          style={{ fontSize: '1.05rem', lineHeight: 1.4 }}
+                        >
+                          {sinalOk ? `${energia}%` : '--'}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Linha 3: link do qual a categoria depende */}
+                    <div className="d-flex justify-content-between align-items-center mt-2">
+                      <span className="text-secondary" style={{ fontSize: '0.6rem' }}>Dependência</span>
+                      <span className={`font-monospace ${sinalOk ? 'text-secondary' : 'text-danger'}`} style={{ fontSize: '0.65rem' }}>
+                        Link #{idLink}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div></div>
         </div>
